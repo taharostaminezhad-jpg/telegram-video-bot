@@ -1,7 +1,7 @@
 import os
 import asyncio
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -22,7 +22,13 @@ REQUIRED_CHANNELS = [
 # کانال مخزن
 STORAGE_CHAT_ID = -1003691964343
 
+# آیدی عددی صاحب ربات
+OWNER_ID = 7223057338
 
+
+# -----------------------------
+# بررسی عضویت در کانال‌ها
+# -----------------------------
 async def is_member(bot, user_id):
     for channel in REQUIRED_CHANNELS:
         try:
@@ -41,6 +47,9 @@ async def is_member(bot, user_id):
     return True
 
 
+# -----------------------------
+# دکمه‌های عضویت
+# -----------------------------
 def join_keyboard():
     keyboard = [
         [
@@ -66,6 +75,9 @@ def join_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 
+# -----------------------------
+# ارسال فیلم
+# -----------------------------
 async def send_movie(bot, chat_id, message_id):
     try:
         message = await bot.copy_message(
@@ -89,6 +101,9 @@ async def send_movie(bot, chat_id, message_id):
         )
 
 
+# -----------------------------
+# حذف فیلم بعد از ۱۰ ثانیه
+# -----------------------------
 async def delete_after_10_seconds(bot, chat_id, message_id):
     await asyncio.sleep(10)
 
@@ -101,17 +116,18 @@ async def delete_after_10_seconds(bot, chat_id, message_id):
         pass
 
 
+# -----------------------------
+# دستور /start
+# -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # اگر لینک فیلم نباشد
     if not context.args:
         await update.message.reply_text(
             "🎬 برای دریافت فیلم، از لینک مخصوص همان فیلم وارد ربات شو."
         )
         return
 
-    # شماره پست فیلم در کانال مخزن
     movie_id = context.args[0]
 
     try:
@@ -141,16 +157,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# -----------------------------
+# بررسی دکمه «عضو شدم»
+# -----------------------------
 async def check_membership(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
     query = update.callback_query
+
     await query.answer()
 
     user_id = query.from_user.id
 
-    # بررسی دوباره عضویت
     if not await is_member(context.bot, user_id):
         await query.answer(
             "❌ هنوز در هر دو کانال عضو نیستی.",
@@ -181,7 +200,9 @@ async def check_membership(
     context.user_data.pop("pending_movie", None)
 
 
-# این تابع وقتی فیلم جدیدی در کانال مخزن گذاشته شود اجرا می‌شود
+# -----------------------------
+# تشخیص فیلم جدید در کانال مخزن
+# -----------------------------
 async def new_storage_movie(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
@@ -191,33 +212,51 @@ async def new_storage_movie(
     if not message:
         return
 
+    # فقط فیلم یا فایل را قبول کن
     if not message.video and not message.document:
         return
 
+    # گرفتن نام کاربری ربات
     me = await context.bot.get_me()
     bot_username = me.username
 
     if not bot_username:
         return
 
+    # شماره پست فیلم
     movie_id = message.message_id
 
-    movie_link = f"https://t.me/{bot_username}?start={movie_id}"
-
-    await context.bot.send_message(
-        chat_id=STORAGE_CHAT_ID,
-        text=(
-            "🎬 فیلم جدید ثبت شد.\n\n"
-            "🔗 لینک دریافت:\n"
-            f"{movie_link}"
-        )
+    # ساخت لینک مخصوص فیلم
+    movie_link = (
+        f"https://t.me/{bot_username}?start={movie_id}"
     )
+
+    # ارسال لینک فقط برای صاحب ربات
+    try:
+        await context.bot.send_message(
+            chat_id=OWNER_ID,
+            text=(
+                "🎬 فیلم جدید ثبت شد.\n\n"
+                f"📌 شماره پست: {movie_id}\n\n"
+                "🔗 لینک دریافت:\n"
+                f"{movie_link}"
+            )
+        )
+    except Exception:
+        pass
+
+
+# -----------------------------
+# ساخت ربات
+# -----------------------------
 app = Application.builder().token(TOKEN).build()
+
 
 # دستور /start
 app.add_handler(
     CommandHandler("start", start)
 )
+
 
 # دکمه «عضو شدم»
 app.add_handler(
@@ -227,7 +266,8 @@ app.add_handler(
     )
 )
 
-# تشخیص فیلم‌های جدید در کانال مخزن
+
+# دریافت پست‌های کانال مخزن
 app.add_handler(
     MessageHandler(
         filters.Chat(chat_id=STORAGE_CHAT_ID)
@@ -237,4 +277,6 @@ app.add_handler(
     )
 )
 
+
+# اجرای دائمی ربات
 app.run_polling()
