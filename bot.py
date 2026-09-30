@@ -1,14 +1,12 @@
 import os
 import asyncio
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    MessageHandler,
+    ChannelPostHandler,
     ContextTypes,
-    filters,
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -191,24 +189,19 @@ async def new_storage_movie(
     if not message:
         return
 
-    # فقط فیلم یا فایل را پردازش کن
     if not message.video and not message.document:
         return
 
-    bot_username = context.bot.username
+    me = await context.bot.get_me()
+    bot_username = me.username
 
     if not bot_username:
         return
 
-    # شماره پست فیلم
     movie_id = message.message_id
 
-    # ساخت لینک مستقیم ربات
-    movie_link = (
-        f"https://t.me/{bot_username}?start={movie_id}"
-    )
+    movie_link = f"https://t.me/{bot_username}?start={movie_id}"
 
-    # ارسال لینک داخل کانال مخزن
     await context.bot.send_message(
         chat_id=STORAGE_CHAT_ID,
         text=(
@@ -217,8 +210,6 @@ async def new_storage_movie(
             f"{movie_link}"
         )
     )
-
-
 app = Application.builder().token(TOKEN).build()
 
 # دستور /start
@@ -236,9 +227,7 @@ app.add_handler(
 
 # تشخیص فیلم‌های جدید در کانال مخزن
 app.add_handler(
-    MessageHandler(
-        filters.Chat(chat_id=STORAGE_CHAT_ID)
-        & (filters.VIDEO | filters.Document.ALL),
+    ChannelPostHandler(
         new_storage_movie
     )
 )
