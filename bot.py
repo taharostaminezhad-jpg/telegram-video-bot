@@ -80,17 +80,26 @@ def join_keyboard():
 # -----------------------------
 async def send_movie(bot, chat_id, message_id):
     try:
+        # ارسال فیلم
         message = await bot.copy_message(
             chat_id=chat_id,
             from_chat_id=STORAGE_CHAT_ID,
             message_id=message_id
         )
 
+        # ارسال پیام هشدار
+        warning_message = await bot.send_message(
+            chat_id=chat_id,
+            text="⚠️ فایل بعد از 10 ثانیه پاک می‌شود."
+        )
+
+        # حذف فیلم و پیام هشدار بعد از 10 ثانیه
         asyncio.create_task(
             delete_after_10_seconds(
                 bot,
                 chat_id,
-                message.message_id
+                message.message_id,
+                warning_message.message_id
             )
         )
 
@@ -102,15 +111,28 @@ async def send_movie(bot, chat_id, message_id):
 
 
 # -----------------------------
-# حذف فیلم بعد از ۱۰ ثانیه
+# حذف فیلم و پیام هشدار بعد از 10 ثانیه
 # -----------------------------
-async def delete_after_10_seconds(bot, chat_id, message_id):
+async def delete_after_10_seconds(
+    bot,
+    chat_id,
+    movie_message_id,
+    warning_message_id
+):
     await asyncio.sleep(10)
 
     try:
         await bot.delete_message(
             chat_id=chat_id,
-            message_id=message_id
+            message_id=movie_message_id
+        )
+    except Exception:
+        pass
+
+    try:
+        await bot.delete_message(
+            chat_id=chat_id,
+            message_id=warning_message_id
         )
     except Exception:
         pass
@@ -172,7 +194,7 @@ async def check_membership(
 
     if not await is_member(context.bot, user_id):
         await query.answer(
-            "❌ هنوز در هر دو کانال عضو نیستی.",
+            "❌ شما در همه کانال‌ها عضو نشده‌اید.",
             show_alert=True
         )
         return
