@@ -5,8 +5,9 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    ChannelPostHandler,
+    MessageHandler,
     ContextTypes,
+    filters,
 )
 
 TOKEN = os.getenv("BOT_TOKEN")
@@ -227,7 +228,10 @@ app.add_handler(
 
 # تشخیص فیلم‌های جدید در کانال مخزن
 app.add_handler(
-    ChannelPostHandler(
+    MessageHandler(
+        filters.Chat(chat_id=STORAGE_CHAT_ID)
+        & filters.UpdateType.CHANNEL_POST
+        & (filters.VIDEO | filters.Document.ALL),
         new_storage_movie
     )
 )
