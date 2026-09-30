@@ -188,16 +188,18 @@ async def check_membership(
 ):
     query = update.callback_query
 
-    await query.answer()
-
     user_id = query.from_user.id
 
+    # بررسی عضویت
     if not await is_member(context.bot, user_id):
         await query.answer(
             "❌ شما در همه کانال‌ها عضو نشده‌اید.",
             show_alert=True
         )
         return
+
+    # پاسخ به دکمه بعد از تأیید عضویت
+    await query.answer()
 
     movie_id = context.user_data.get("pending_movie")
 
