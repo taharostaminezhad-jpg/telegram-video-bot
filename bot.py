@@ -48,64 +48,75 @@ async def is_member(bot, user_id):
 
 
 # -----------------------------
-# ساخت لینک‌های دعوت اختصاصی
+# ساخت لینک‌های عضویت جدید
 # -----------------------------
-async def create_invite_links(bot):
-    invite_links = {}
+async def create_invite_links(bot, user_id):
+    created_links = []
 
-    for channel in REQUIRED_CHANNELS:
-        try:
-            invite_link = await bot.create_chat_invite_link(
+    try:
+        for channel in REQUIRED_CHANNELS:
+
+            invite = await bot.create_chat_invite_link(
                 chat_id=channel
             )
 
-            invite_links[channel] = invite_link.invite_link
+            created_links.append({
+                "channel": channel,
+                "link": invite.invite_link
+            })
 
-        except Exception:
-            return None
+        return created_links
 
-    return invite_links
+    except Exception:
+
+        # اگر وسط ساخت لینک خطا خورد،
+        # لینک‌هایی که تا اینجا ساخته شده‌اند هم باطل شوند
+        for item in created_links:
+            try:
+                await bot.revoke_chat_invite_link(
+                    chat_id=item["channel"],
+                    invite_link=item["link"]
+                )
+            except Exception:
+                pass
+
+        return None
 
 
 # -----------------------------
-# باطل کردن لینک‌های دعوت
+# باطل کردن تمام لینک‌های قبلی کاربر
 # -----------------------------
-async def revoke_invite_links(bot, invite_links):
-    if not invite_links:
-        return
+async def revoke_all_user_invite_links(bot, user_data):
 
-    for channel, invite_link in invite_links.items():
+    all_links = user_data.get("invite_links", [])
+
+    for item in all_links:
         try:
             await bot.revoke_chat_invite_link(
-                chat_id=channel,
-                invite_link=invite_link
+                chat_id=item["channel"],
+                invite_link=item["link"]
             )
         except Exception:
             pass
+
+    user_data.pop("invite_links", None)
 
 
 # -----------------------------
 # دکمه‌های عضویت
 # -----------------------------
-def join_keyboard(invite_links):
+def join_keyboard(new_links):
+
     keyboard = []
 
-    if invite_links:
-        if "@restiko_zapas" in invite_links:
-            keyboard.append([
-                InlineKeyboardButton(
-                    "عضویت در کانال اول 📢",
-                    url=invite_links["@restiko_zapas"]
-                )
-            ])
+    for index, item in enumerate(new_links):
 
-        if "@Restiko4" in invite_links:
-            keyboard.append([
-                InlineKeyboardButton(
-                    "عضویت در کانال دوم 📢",
-                    url=invite_links["@Restiko4"]
-                )
-            ])
+        keyboard.append([
+            InlineKeyboardButton(
+                f"عضویت در کانال {index + 1} 📢",
+                url=item["link"]
+            )
+        ])
 
     keyboard.append([
         InlineKeyboardButton(
@@ -121,7 +132,9 @@ def join_keyboard(invite_links):
 # ارسال فیلم
 # -----------------------------
 async def send_movie(bot, chat_id, message_id):
+
     try:
+
         # ارسال فیلم
         message = await bot.copy_message(
             chat_id=chat_id,
@@ -129,13 +142,13 @@ async def send_movie(bot, chat_id, message_id):
             message_id=message_id
         )
 
-        # ارسال پیام هشدار
+        # پیام هشدار
         warning_message = await bot.send_message(
             chat_id=chat_id,
             text="⚠️ فایل بعد از 15 ثانیه پاک می‌شود."
         )
 
-        # حذف فیلم و پیام هشدار بعد از 15 ثانیه
+        # حذف بعد از 15 ثانیه
         asyncio.create_task(
             delete_after_15_seconds(
                 bot,
@@ -148,15 +161,17 @@ async def send_movie(bot, chat_id, message_id):
         return True
 
     except Exception:
+
         await bot.send_message(
             chat_id=chat_id,
             text="❌ متأسفانه فیلم پیدا نشد."
         )
+
         return False
 
 
 # -----------------------------
-# حذف فیلم و پیام هشدار بعد از 15 ثانیه
+# حذف فیلم و هشدار بعد از 15 ثانیه
 # -----------------------------
 async def delete_after_15_seconds(
     bot,
@@ -164,6 +179,7 @@ async def delete_after_15_seconds(
     movie_message_id,
     warning_message_id
 ):
+
     await asyncio.sleep(15)
 
     try:
@@ -187,53 +203,86 @@ async def delete_after_15_seconds(
 # دستور /start
 # -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     user_id = update.effective_user.id
 
     if not context.args:
+
         await update.message.reply_text(
             "🎬 برای دریافت فیلم، از لینک مخصوص همان فیلم وارد ربات شو."
         )
+
         return
 
     movie_id = context.args[0]
 
     try:
         movie_id = int(movie_id)
+
     except ValueError:
+
         await update.message.reply_text(
             "❌ لینک فیلم نامعتبر است."
         )
+
         return
 
     # ذخیره فیلم درخواستی
     context.user_data["pending_movie"] = movie_id
 
-    # بررسی عضویت
-    if not await is_member(context.bot, user_id):
+    # اگر عضو همه کانال‌هاست
+    if await is_member(context.bot, user_id):
 
-        # ساخت لینک‌های اختصاصی
-        invite_links = await create_invite_links(context.bot)
-
-        if not invite_links:
-            await update.message.reply_text(
-                "❌ خطایی در ساخت لینک عضویت رخ داده است."
-            )
-            return
-
-        # ذخیره لینک‌ها برای همین کاربر
-        context.user_data["invite_links"] = invite_links
-
-        await update.message.reply_text(
-            "⚠️ برای دریافت فیلم، ابتدا در کانال‌های زیر عضو شو:",
-            reply_markup=join_keyboard(invite_links)
+        success = await send_movie(
+            context.bot,
+            update.effective_chat.id,
+            movie_id
         )
+
+        # اگر فیلم با موفقیت ارسال شد،
+        # تمام لینک‌های عضویت قبلی باطل شوند
+        if success:
+            await revoke_all_user_invite_links(
+                context.bot,
+                context.user_data
+            )
+
+            context.user_data.pop(
+                "pending_movie",
+                None
+            )
+
         return
 
-    # اگر از قبل عضو همه کانال‌هاست، فیلم ارسال شود
-    await send_movie(
+    # -------------------------
+    # کاربر عضو نیست
+    # -------------------------
+
+    new_links = await create_invite_links(
         context.bot,
-        update.effective_chat.id,
-        movie_id
+        user_id
+    )
+
+    if not new_links:
+
+        await update.message.reply_text(
+            "❌ خطایی در ساخت لینک عضویت رخ داد."
+        )
+
+        return
+
+    # لینک‌های جدید را به لیست قبلی اضافه کن
+    # نه اینکه قبلی‌ها را پاک کنیم
+    if "invite_links" not in context.user_data:
+        context.user_data["invite_links"] = []
+
+    context.user_data["invite_links"].extend(
+        new_links
+    )
+
+    await update.message.reply_text(
+        "⚠️ برای دریافت فیلم، ابتدا در همه کانال‌ها عضو شو:",
+        reply_markup=join_keyboard(new_links)
     )
 
 
@@ -244,43 +293,47 @@ async def check_membership(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     query = update.callback_query
 
     user_id = query.from_user.id
 
     # بررسی عضویت
-    if not await is_member(context.bot, user_id):
+    if not await is_member(
+        context.bot,
+        user_id
+    ):
+
         await query.answer(
             "هنوز توی بعضی از کانالا عضو نشدی رفیق!",
             show_alert=True
         )
+
         return
 
     # پاسخ به دکمه
     await query.answer()
 
-    movie_id = context.user_data.get("pending_movie")
+    movie_id = context.user_data.get(
+        "pending_movie"
+    )
 
+    # اگر فیلمی در انتظار نیست
     if not movie_id:
+
+        # با این حال لینک‌های قبلی را باطل کن
+        await revoke_all_user_invite_links(
+            context.bot,
+            context.user_data
+        )
+
         await query.edit_message_text(
             "✅ عضویت تأیید شد.\n"
             "حالا لینک فیلم موردنظرت رو باز کن."
         )
 
-        # باطل کردن لینک‌ها
-        invite_links = context.user_data.get("invite_links")
-
-        if invite_links:
-            await revoke_invite_links(
-                context.bot,
-                invite_links
-            )
-
-            context.user_data.pop("invite_links", None)
-
         return
 
-    # تغییر پیام به حالت ارسال فیلم
     await query.edit_message_text(
         "✅ عضویت تأیید شد.\n"
         "🎬 در حال ارسال فیلم..."
@@ -293,19 +346,19 @@ async def check_membership(
         movie_id
     )
 
-    # بعد از ارسال فیلم، لینک‌های دعوت باطل شوند
+    # فقط اگر فیلم واقعاً ارسال شد
+    # تمام لینک‌های عضویت قبلی باطل شوند
     if success:
-        invite_links = context.user_data.get("invite_links")
 
-        if invite_links:
-            await revoke_invite_links(
-                context.bot,
-                invite_links
-            )
+        await revoke_all_user_invite_links(
+            context.bot,
+            context.user_data
+        )
 
-    # پاک کردن اطلاعات موقت
-    context.user_data.pop("pending_movie", None)
-    context.user_data.pop("invite_links", None)
+        context.user_data.pop(
+            "pending_movie",
+            None
+        )
 
 
 # -----------------------------
@@ -315,17 +368,19 @@ async def new_storage_movie(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE
 ):
+
     message = update.channel_post
 
     if not message:
         return
 
-    # فقط فیلم یا فایل را قبول کن
+    # فقط فیلم یا فایل
     if not message.video and not message.document:
         return
 
     # گرفتن نام کاربری ربات
     me = await context.bot.get_me()
+
     bot_username = me.username
 
     if not bot_username:
@@ -341,6 +396,7 @@ async def new_storage_movie(
 
     # ارسال لینک فقط برای صاحب ربات
     try:
+
         await context.bot.send_message(
             chat_id=OWNER_ID,
             text=(
@@ -350,6 +406,7 @@ async def new_storage_movie(
                 f"{movie_link}"
             )
         )
+
     except Exception:
         pass
 
@@ -362,7 +419,10 @@ app = Application.builder().token(TOKEN).build()
 
 # دستور /start
 app.add_handler(
-    CommandHandler("start", start)
+    CommandHandler(
+        "start",
+        start
+    )
 )
 
 
@@ -378,9 +438,14 @@ app.add_handler(
 # دریافت پست‌های کانال مخزن
 app.add_handler(
     MessageHandler(
-        filters.Chat(chat_id=STORAGE_CHAT_ID)
+        filters.Chat(
+            chat_id=STORAGE_CHAT_ID
+        )
         & filters.UpdateType.CHANNEL_POST
-        & (filters.VIDEO | filters.Document.ALL),
+        & (
+            filters.VIDEO
+            | filters.Document.ALL
+        ),
         new_storage_movie
     )
 )
