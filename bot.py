@@ -48,29 +48,71 @@ async def is_member(bot, user_id):
 
 
 # -----------------------------
+# ساخت لینک‌های دعوت اختصاصی
+# -----------------------------
+async def create_invite_links(bot):
+    invite_links = {}
+
+    for channel in REQUIRED_CHANNELS:
+        try:
+            invite_link = await bot.create_chat_invite_link(
+                chat_id=channel
+            )
+
+            invite_links[channel] = invite_link.invite_link
+
+        except Exception:
+            return None
+
+    return invite_links
+
+
+# -----------------------------
+# باطل کردن لینک‌های دعوت
+# -----------------------------
+async def revoke_invite_links(bot, invite_links):
+    if not invite_links:
+        return
+
+    for channel, invite_link in invite_links.items():
+        try:
+            await bot.revoke_chat_invite_link(
+                chat_id=channel,
+                invite_link=invite_link
+            )
+        except Exception:
+            pass
+
+
+# -----------------------------
 # دکمه‌های عضویت
 # -----------------------------
-def join_keyboard():
-    keyboard = [
-        [
-            InlineKeyboardButton(
-                "عضویت در کانال اول 📢",
-                url="https://t.me/restiko_zapas"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "عضویت در کانال دوم 📢",
-                url="https://t.me/Restiko4"
-            )
-        ],
-        [
-            InlineKeyboardButton(
-                "عضو شدم ✅",
-                callback_data="check_membership"
-            )
-        ],
-    ]
+def join_keyboard(invite_links):
+    keyboard = []
+
+    if invite_links:
+        if "@restiko_zapas" in invite_links:
+            keyboard.append([
+                InlineKeyboardButton(
+                    "عضویت در کانال اول 📢",
+                    url=invite_links["@restiko_zapas"]
+                )
+            ])
+
+        if "@Restiko4" in invite_links:
+            keyboard.append([
+                InlineKeyboardButton(
+                    "عضویت در کانال دوم 📢",
+                    url=invite_links["@Restiko4"]
+                )
+            ])
+
+    keyboard.append([
+        InlineKeyboardButton(
+            "عضو شدم ✅",
+            callback_data="check_membership"
+        )
+    ])
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -90,12 +132,12 @@ async def send_movie(bot, chat_id, message_id):
         # ارسال پیام هشدار
         warning_message = await bot.send_message(
             chat_id=chat_id,
-            text="⚠️ فایل بعد از 10 ثانیه پاک می‌شود."
+            text="⚠️ فایل بعد از 15 ثانیه پاک می‌شود."
         )
 
-        # حذف فیلم و پیام هشدار بعد از 10 ثانیه
+        # حذف فیلم و پیام هشدار بعد از 15 ثانیه
         asyncio.create_task(
-            delete_after_10_seconds(
+            delete_after_15_seconds(
                 bot,
                 chat_id,
                 message.message_id,
@@ -103,23 +145,26 @@ async def send_movie(bot, chat_id, message_id):
             )
         )
 
+        return True
+
     except Exception:
         await bot.send_message(
             chat_id=chat_id,
             text="❌ متأسفانه فیلم پیدا نشد."
         )
+        return False
 
 
 # -----------------------------
-# حذف فیلم و پیام هشدار بعد از 10 ثانیه
+# حذف فیلم و پیام هشدار بعد از 15 ثانیه
 # -----------------------------
-async def delete_after_10_seconds(
+async def delete_after_15_seconds(
     bot,
     chat_id,
     movie_message_id,
     warning_message_id
 ):
-    await asyncio.sleep(10)
+    await asyncio.sleep(15)
 
     try:
         await bot.delete_message(
@@ -165,13 +210,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # بررسی عضویت
     if not await is_member(context.bot, user_id):
+
+        # ساخت لینک‌های اختصاصی
+        invite_links = await create_invite_links(context.bot)
+
+        if not invite_links:
+            await update.message.reply_text(
+                "❌ خطایی در ساخت لینک عضویت رخ داده است."
+            )
+            return
+
+        # ذخیره لینک‌ها برای همین کاربر
+        context.user_data["invite_links"] = invite_links
+
         await update.message.reply_text(
-            "⚠️ برای دریافت فیلم، ابتدا در هر دو کانال عضو شو:",
-            reply_markup=join_keyboard()
+            "⚠️ برای دریافت فیلم، ابتدا در کانال‌های زیر عضو شو:",
+            reply_markup=join_keyboard(invite_links)
         )
         return
 
-    # ارسال فیلم
+    # اگر از قبل عضو همه کانال‌هاست، فیلم ارسال شود
     await send_movie(
         context.bot,
         update.effective_chat.id,
@@ -193,12 +251,12 @@ async def check_membership(
     # بررسی عضویت
     if not await is_member(context.bot, user_id):
         await query.answer(
-            "❌ شما در همه کانال‌ها عضو نشده‌اید.",
+            "هنوز توی بعضی از کانالا عضو نشدی رفیق!",
             show_alert=True
         )
         return
 
-    # پاسخ به دکمه بعد از تأیید عضویت
+    # پاسخ به دکمه
     await query.answer()
 
     movie_id = context.user_data.get("pending_movie")
@@ -208,20 +266,46 @@ async def check_membership(
             "✅ عضویت تأیید شد.\n"
             "حالا لینک فیلم موردنظرت رو باز کن."
         )
+
+        # باطل کردن لینک‌ها
+        invite_links = context.user_data.get("invite_links")
+
+        if invite_links:
+            await revoke_invite_links(
+                context.bot,
+                invite_links
+            )
+
+            context.user_data.pop("invite_links", None)
+
         return
 
+    # تغییر پیام به حالت ارسال فیلم
     await query.edit_message_text(
         "✅ عضویت تأیید شد.\n"
         "🎬 در حال ارسال فیلم..."
     )
 
-    await send_movie(
+    # ارسال فیلم
+    success = await send_movie(
         context.bot,
         query.message.chat_id,
         movie_id
     )
 
+    # بعد از ارسال فیلم، لینک‌های دعوت باطل شوند
+    if success:
+        invite_links = context.user_data.get("invite_links")
+
+        if invite_links:
+            await revoke_invite_links(
+                context.bot,
+                invite_links
+            )
+
+    # پاک کردن اطلاعات موقت
     context.user_data.pop("pending_movie", None)
+    context.user_data.pop("invite_links", None)
 
 
 # -----------------------------
